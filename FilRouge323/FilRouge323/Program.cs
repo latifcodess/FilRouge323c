@@ -8,43 +8,87 @@ namespace FilRouge323
     {
         static void Main(string[] args)
         {
-            if (args.Length == 0 || args.Contains("--dav"))
+            if (args.Contains("--generate"))
             {
-                Console.WriteLine("Usage: EsportApp [--game valorant|cs2|lol]");
+                var target = args[Array.IndexOf(args, "--generate") + 1];
+
+                var players = target == "all"
+                    ? new[] { "Raphaël", "Kiara", "Dylan", "Noé" }
+                    : new[] { target };
+
+                foreach (var player in players)
+                {
+                    var series = MatchGenerator.GenerateCs2(player, 20);
+                    ExportCs2(series.Filter(isValid), $"{player.ToLower()}_generated.csv");
+                    Console.WriteLine($"{player} : données générées et exportées");
+                }
                 return;
             }
-
-            string? game = null;
-            if (args.Contains("--game"))
-                game = args[Array.IndexOf(args, "--game") + 1];
             
-            var cs2 = DataSeries<Cs2Match>.From(new[]
-            {
-                new Cs2Match("Raphaël", "Mirage",  "CT", 21, 14, 5, 2, true),
-                new Cs2Match("Kiara",   "Dust2",   "T",  26, 11, 1, 4, true),
-                new Cs2Match("Raphaël", "Inferno", "T",  14, 16, 6, 1, false),
-            });
+            ValorantMatch ParseValorant(string[] cols) => new ValorantMatch(
+                cols[1],              // player
+                cols[2],              // agent
+                int.Parse(cols[3]),   // kills
+                int.Parse(cols[4]),   // deaths
+                int.Parse(cols[5]),   // assists
+                int.Parse(cols[6]),   // headshots
+                int.Parse(cols[7]),   // roundsWon
+                bool.Parse(cols[8])   // won
+            );
 
-            var lol = DataSeries<LolMatch>.From(new[]
-            {
-                new LolMatch("Noé", "Thresh", 2, 4, 18, 42, 71, true),
-                new LolMatch("Noé", "Thresh", 1, 6, 12, 35, 64, false),
-            });
+            Cs2Match ParseCs2(string[] cols) => new Cs2Match(
+                cols[1],              // player
+                cols[2],              // map
+                cols[3],              // startSide (côté joué en 1re mi-temps — CT ou T)
+                int.Parse(cols[4]),   // kills
+                int.Parse(cols[5]),   // deaths
+                int.Parse(cols[6]),   // assists
+                int.Parse(cols[7]),   // mvps
+                bool.Parse(cols[8])   // won
+            );
 
-            var valorant = DataSeries<ValorantMatch>.From(new[]
-            {
-                new ValorantMatch("Léa", "Jett",  18, 6, 4, 8,  13, true),
-                new ValorantMatch("Léa", "Reyna", 22, 8, 2, 11,  9, false),
-                new ValorantMatch("Léa", "Neon",  20, 7, 5,  9, 13, true),
-            });
+            LolMatch ParseLol(string[] cols) => new LolMatch(
+                cols[1],              // player
+                cols[2],              // champion
+                int.Parse(cols[4]),   // kills
+                int.Parse(cols[5]),   // deaths
+                int.Parse(cols[6]),   // assists
+                int.Parse(cols[7]),   // cs
+                int.Parse(cols[8]),   // visionScore
+                bool.Parse(cols[9])   // won
+            );
             
-            // séries construites avec les matchs en dur des étapes 2 et 3
-            if (game == null || game == "valorant")
-                Console.WriteLine($"Valorant : {valorant.Count} matchs");
-            if (game == null || game == "cs2")
-                Console.WriteLine($"CS2      : {cs2.Count} matchs");
-            if (game == null || game == "lol")
-                Console.WriteLine($"LoL      : {lol.Count} matchs");
+            var valorant = DataSeries<ValorantMatch>.FromCsv("data/valorant.csv", ParseValorant);
+            var cs2      = DataSeries<Cs2Match>.FromCsv("data/cs2.csv", ParseCs2);
+            var lol      = DataSeries<LolMatch>.FromCsv("data/lol.csv", ParseLol);
+
+            Console.WriteLine($"Valorant : {valorant.Count} matchs");
+            Console.WriteLine($"CS2      : {cs2.Count} matchs");
+            Console.WriteLine($"LoL      : {lol.Count} matchs \n");
+            // Total : 75 matchs
+            
+            var raphaelGenerated = MatchGenerator.GenerateCs2("Raphaël", 20);
+            Console.WriteLine($"Raphaël matchs : {raphaelGenerated.Count}"); // 20
+            
+            Func<Cs2Match, bool> isValid = m =>
+                m.Kills + m.Assists <= 50 &&
+                m.Deaths >= 1;
+
+            var raphaelValid = raphaelGenerated.Filter(isValid);
+            Console.WriteLine($"Avant : {raphaelGenerated.Count}, après : {raphaelValid.Count}");
+            
+            void ExportCs2(DataSeries<Cs2Match> matches, string path)
+            {
+                var header = "date,player,map,start_side,kills,deaths,assists,mvps,won";
+                var lines = matches.DataPoints.Select(dp =>
+                    $"{dp.Timestamp:yyyy-MM-dd},{dp.Value.Player},{dp.Value.Map},{dp.Value.StartSide}," +
+                    $"{dp.Value.Kills},{dp.Value.Deaths},{dp.Value.Assists},{dp.Value.Mvps},{dp.Value.Won.ToString().ToLower()}"
+                );
+                File.WriteAllLines(path, lines.Prepend(header));
+            }
+
+            // Générer, filtrer et exporter
+            ExportCs2(raphaelValid, "raphael_generated.csv");
         }
     }
     
