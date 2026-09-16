@@ -8,22 +8,7 @@ namespace FilRouge323
     {
         static void Main(string[] args)
         {
-            if (args.Contains("--generate"))
-            {
-                var target = args[Array.IndexOf(args, "--generate") + 1];
 
-                var players = target == "all"
-                    ? new[] { "Raphaël", "Kiara", "Dylan", "Noé" }
-                    : new[] { target };
-
-                foreach (var player in players)
-                {
-                    var series = MatchGenerator.GenerateCs2(player, 20);
-                    ExportCs2(series.Filter(isValid), $"{player.ToLower()}_generated.csv");
-                    Console.WriteLine($"{player} : données générées et exportées");
-                }
-                return;
-            }
             
             ValorantMatch ParseValorant(string[] cols) => new ValorantMatch(
                 cols[1],              // player
@@ -68,14 +53,49 @@ namespace FilRouge323
             // Total : 75 matchs
             
             var raphaelGenerated = MatchGenerator.GenerateCs2("Raphaël", 20);
-            Console.WriteLine($"Raphaël matchs : {raphaelGenerated.Count}"); // 20
+            //Console.WriteLine($"Raphaël matchs : {raphaelGenerated.Count}"); // 20
             
             Func<Cs2Match, bool> isValid = m =>
                 m.Kills + m.Assists <= 50 &&
                 m.Deaths >= 1;
+            
+            if (args.Contains("--generate"))
+            {
+                var target = args[Array.IndexOf(args, "--generate") + 1];
 
+                var players = target == "all"
+                    ? new[] { "Raphaël", "Kiara", "Dylan", "Noé" }
+                    : new[] { target };
+
+                foreach (var name in players)
+                {
+                    var series = MatchGenerator.GenerateCs2(name, 20);
+                    ExportCs2(series.Filter(isValid), $"{name.ToLower()}_generated.csv");
+                    Console.WriteLine($"{name} : données générées et exportées");
+                }
+                return;
+            }
+            
+            string? player = args.Contains("--player")
+                ? args[Array.IndexOf(args, "--player") + 1]
+                : null;
+
+            string filterMode = args.Contains("--filter")
+                ? args[Array.IndexOf(args, "--filter") + 1]
+                : "all";
+
+            // Table de prédicats — le mode CLI sélectionne une fonction
+            var filters = new Dictionary<string, Func<ValorantMatch, bool>>
+            {
+                ["wins"]   = m => m.Won,
+                ["losses"] = m => !m.Won,
+                ["all"]    = m => true,
+            };
+
+            var result = valorant.Filter(filters[filterMode]);
+            
             var raphaelValid = raphaelGenerated.Filter(isValid);
-            Console.WriteLine($"Avant : {raphaelGenerated.Count}, après : {raphaelValid.Count}");
+            //Console.WriteLine($"Avant : {raphaelGenerated.Count}, après : {raphaelValid.Count}");
             
             void ExportCs2(DataSeries<Cs2Match> matches, string path)
             {
@@ -89,6 +109,47 @@ namespace FilRouge323
 
             // Générer, filtrer et exporter
             ExportCs2(raphaelValid, "raphael_generated.csv");
+            
+            Func<ValorantMatch, bool> isWin       = m => m.Won;
+            Func<ValorantMatch, bool> isHighScore = m => m.Kills > 20;
+
+            // Combinaison : un nouveau prédicat (victoire éclatante) construit à partir des deux autres
+            Func<ValorantMatch, bool> isCrushingWin = m => isWin(m) && isHighScore(m);
+
+            var top = valorant.Filter(isCrushingWin);
+            
+            // Valorant : kills plausibles pour un match compétitif
+            var valorantValid = valorant.RemoveOutliers(m =>
+                m.Kills   >= 0 && m.Kills   <= 50 &&
+                m.Deaths  >= 1 && m.Deaths  <= 30 &&
+                m.Assists >= 0
+            );
+
+            // CS2 : contraintes similaires
+            var cs2Valid = cs2.RemoveOutliers(m =>
+                m.Kills + m.Assists <= 50 &&
+                m.Deaths >= 1
+            );
+
+            // LoL : le support a structurellement peu de kills
+            var lolValid = lol.RemoveOutliers(m =>
+                m.Kills   <= 10 &&
+                m.Deaths  >= 1  &&
+                m.Assists >= 0  &&
+                m.Cs      >= 0
+            );
+            
+            Console.WriteLine($"Valorant : {valorant.Count} -> {valorantValid.Count} après RemoveOutliers");
+            Console.WriteLine($"CS2      : {cs2.Count} -> {cs2Valid.Count} après RemoveOutliers");
+            Console.WriteLine($"LoL      : {lol.Count} -> {lolValid.Count} après RemoveOutliers\n");
+
+            Console.WriteLine(valorantValid.HasAny(m => m.Kills > 20));
+            // → Léa a-t-elle au moins un match avec plus de 20 kills ?
+
+            Console.WriteLine(lolValid.AllMatch(m => m.Deaths >= 1));
+            // → Tous les matchs de Noé ont-ils au moins 1 mort ?      
+            
+            
         }
     }
     

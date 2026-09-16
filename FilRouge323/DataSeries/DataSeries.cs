@@ -18,8 +18,18 @@ public class DataSeries<T>
             return new DataPoint<T>(DateTime.Parse(cols[0]), parser(cols));
         }));
     }
+    public DataSeries<T> Filter(Func<T, bool> predicate)
+        => new DataSeries<T>(_data.Where(dp => predicate(dp.Value)));
+    
     public DataSeries<T> FilterByDate(Func<DateTime, bool> predicate)
         => new DataSeries<T>(_data.Where(dp => predicate(dp.Timestamp)));
     
+    public DataSeries<T> RemoveOutliers(Func<T, bool> isValid)
+        => Filter(isValid);
     
+    public bool HasAny(Func<T, bool> predicate)
+        => Values.Any(predicate);
+
+    public bool AllMatch(Func<T, bool> predicate)
+        => Values.All(predicate);
 }

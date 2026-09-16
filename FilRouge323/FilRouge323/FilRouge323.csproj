@@ -11,4 +11,9 @@
       <ProjectReference Include="..\DataSeries\DataSeries.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <!-- Les CSV sont copiés à côté de l'exécutable à chaque build -->
+      <Content Include="data\**\*.csv" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>
