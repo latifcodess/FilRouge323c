@@ -84,6 +84,10 @@ namespace FilRouge323
                 ? args[Array.IndexOf(args, "--filter") + 1]
                 : "all";
 
+            string stat = args.Contains("--stat")
+                ? args[Array.IndexOf(args, "--stat") + 1]
+                : "kda";
+
             // Table de prédicats — le mode CLI sélectionne une fonction
             var filters = new Dictionary<string, Func<ValorantMatch, bool>>
             {
@@ -93,6 +97,19 @@ namespace FilRouge323
             };
 
             var result = valorant.Filter(filters[filterMode]);
+
+            // Table de sélecteurs — le flag CLI choisit la fonction de transformation
+            var selectors = new Dictionary<string, Func<ValorantMatch, double>>
+            {
+                ["kda"]     = m => (m.Kills + m.Assists) / (double)(m.Deaths == 0 ? 1 : m.Deaths),
+                ["kills"]   = m => m.Kills,
+                ["assists"] = m => m.Assists,
+            };
+
+            if (!selectors.ContainsKey(stat))
+                throw new ArgumentException($"Stat inconnue : {stat}");
+
+            DataSeries<double> values = valorant.Transform(selectors[stat]);
             
             var raphaelValid = raphaelGenerated.Filter(isValid);
             //Console.WriteLine($"Avant : {raphaelGenerated.Count}, après : {raphaelValid.Count}");
@@ -139,17 +156,89 @@ namespace FilRouge323
                 m.Cs      >= 0
             );
             
-            Console.WriteLine($"Valorant : {valorant.Count} -> {valorantValid.Count} après RemoveOutliers");
-            Console.WriteLine($"CS2      : {cs2.Count} -> {cs2Valid.Count} après RemoveOutliers");
-            Console.WriteLine($"LoL      : {lol.Count} -> {lolValid.Count} après RemoveOutliers\n");
+            var kdaLea = valorant
+                .Filter(m => m.Player == "Léa")
+                .Transform(m => (m.Kills + m.Assists) / (double)(m.Deaths == 0 ? 1 : m.Deaths));
 
-            Console.WriteLine(valorantValid.HasAny(m => m.Kills > 20));
-            // → Léa a-t-elle au moins un match avec plus de 20 kills ?
+            var kdaRaphael = cs2
+                .Filter(m => m.Player == "Raphaël")
+                .Transform(m => (m.Kills + m.Assists) / (double)(m.Deaths == 0 ? 1 : m.Deaths));
+            
+            var kdaKiara = cs2
+                .Filter(m => m.Player == "Kiara")
+                .Transform(m => (m.Kills + m.Assists) / (double)(m.Deaths == 0 ? 1 : m.Deaths));
+            
+            var kdaNoe = lol
+                .Filter(m => m.Player == "Noé")
+                .Transform(m => (m.Kills + m.Assists) / (double)(m.Deaths == 0 ? 1 : m.Deaths));
 
-            Console.WriteLine(lolValid.AllMatch(m => m.Deaths >= 1));
-            // → Tous les matchs de Noé ont-ils au moins 1 mort ?      
+            int window = 3;
+
+            var kdaLeaNorm = MathHelpers.Normalize(kdaLea);
+            var kdaRaphaelNorm = MathHelpers.Normalize(kdaRaphael);
+            var kdaKiaraNorm = MathHelpers.Normalize(kdaKiara);
+            var kdaNoeNorm = MathHelpers.Normalize(kdaNoe);
             
+            var kdaLeaSmooth = MathHelpers.Smooth(kdaLea, window);
+            var kdaRaphaelSmooth = MathHelpers.Smooth(kdaRaphael, window);
+            var kdaKiaraSmooth = MathHelpers.Smooth(kdaKiara, window);
+            var kdaNoeSmooth = MathHelpers.Smooth(kdaNoe, window);
             
+            Console.WriteLine($"Léa brut : {string.Join(", ", kdaLea.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Léa normalize : {string.Join(", ", kdaLeaNorm.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Léa smooth : {string.Join(", ", kdaLeaSmooth.Values.Select(l => l.ToString("F2")))}");
+            
+            Console.WriteLine();
+            
+            Console.WriteLine($"Raphaël brut : {string.Join(", ", kdaRaphael.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Raphaël normalize : {string.Join(", ", kdaRaphaelNorm.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Raphaël smooth : {string.Join(", ", kdaRaphaelSmooth.Values.Select(l => l.ToString("F2")))}");
+
+            Console.WriteLine();
+            
+            Console.WriteLine($"Kiara brut : {string.Join(", ", kdaKiara.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Kiara normalize : {string.Join(", ", kdaKiaraNorm.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Kiara smooth : {string.Join(", ", kdaKiaraSmooth.Values.Select(l => l.ToString("F2")))}");
+
+            Console.WriteLine();
+            
+            Console.WriteLine($"Noé brut : {string.Join(", ", kdaNoe.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Noé normalize : {string.Join(", ", kdaNoeNorm.Values.Select(l => l.ToString("F2")))}");
+            Console.WriteLine($"Noé smooth : {string.Join(", ", kdaNoeSmooth.Values.Select(l => l.ToString("F2")))}");
+            
+            Console.WriteLine();
+            
+            Console.WriteLine(kdaLea.Count);
+            Console.WriteLine(valorant.Count);
+        }
+    }
+    
+    public static class MathHelpers
+    {
+        public static DataSeries<double> Normalize(DataSeries<double> series)
+        {
+            var points = series.DataPoints.ToList();
+            var values = points.Select(dp => dp.Value).ToList();
+            var min    = values.Min();
+            var max    = values.Max();
+            var range  = max - min;
+            return DataSeries<double>.From(
+                points.Select(dp => new DataPoint<double>(dp.Timestamp, range == 0 ? 0.0 : (dp.Value - min) / range))
+            );
+        }
+        
+        public static DataSeries<double> Smooth(DataSeries<double> series, int windowSize)
+        {
+            var points = series.DataPoints.ToList();
+            var values = points.Select(dp => dp.Value).ToList();
+            return DataSeries<double>.From(
+                Enumerable.Range(0, values.Count)
+                    .Select(i =>
+                    {
+                        var window = values.Skip(Math.Max(0, i - windowSize + 1)).Take(windowSize);
+                        return new DataPoint<double>(points[i].Timestamp, window.Average());
+                    })
+            );
         }
     }
     
