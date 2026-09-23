@@ -32,4 +32,7 @@ public class DataSeries<T>
 
     public bool AllMatch(Func<T, bool> predicate)
         => Values.All(predicate);
+    
+    public DataSeries<TResult> Transform<TResult>(Func<T, TResult> mapper)
+        => DataSeries<TResult>.From(_data.Select(dp => new DataPoint<TResult>(dp.Timestamp, mapper(dp.Value))));
 }
